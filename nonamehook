@@ -1,0 +1,111 @@
+mount_block_dev(){
+    echo "fs_type=$(blkid -o value -s TYPE -p $1)"
+    fs_type=$(blkid -o value -s TYPE -p $1)
+    echo "if [ -n $fs_type ]"
+    if [ -n "$fs_type" ]
+	then
+	echo "mountpoint /cdrom_fs && umount /cdrom_fs"
+	mountpoint /cdrom_fs && umount /cdrom_fs
+	echo "mount -t $fs_type -o ro $1 /cdrom_fs && return 0"
+	mount -t $fs_type -o ro $1 /cdrom_fs && return 0
+    fi
+    echo "return 1"
+    return 1
+}
+
+mount_sfs(){
+    echo "if [ -f /cdrom_fs/rootfs.sfs ]"
+    if [ -f /cdrom_fs/rootfs.sfs ]
+    then
+	mkdir -p /squashfs
+	mountpoint /squashfs && umount /squashfs
+	mount -o loop /cdrom_fs/rootfs.sfs /squashfs && return 0
+    else
+	echo "mountpoint /cdrom_fs && umount /cdrom_fs"
+	mountpoint /cdrom_fs && umount /cdrom_fs
+    fi
+    return 1
+}
+
+bind_to_root(){
+    for _dir_ in $1/*
+    do
+	if [ -f $_dir_ ]
+	then
+	    ln -s "$_dir_" "/`echo $_dir_ | cut -d/ -f3`"
+	elif [ -d $_dir_ ]
+	then
+	    echo " trying $_dir_ for binding" 
+	    if [ "$_dir_" = "$1/dev" ]
+	    then
+		continue
+	    fi
+	    if [ "$_dir_" = "$1/proc" ]
+	    then
+		continue
+	    fi
+	    if [ "$_dir_" = "$1/sys" ]
+	    then
+		continue
+	    fi
+	    if [ "$_dir_" = "$1/mnt" ]
+	    then
+		continue
+	    fi
+	    if [ -d "/`echo $_dir_ | cut -d/ -f3`" ]
+	    then
+		echo folder "/`echo $_dir_ | cut -d/ -f3` exist"
+		mountpoint "/`echo $_dir_ | cut -d/ -f3`" && umount "/`echo $_dir_ | cut -d/ -f3`"
+	    else
+		echo "mkdir /`echo $_dir_ | cut -d/ -f3`"
+		mkdir -p "/`echo $_dir_ | cut -d/ -f3`"
+	    fi
+	    echo "mounting $_dir_ on `echo $_dir_ | cut -d/ -f3`"
+	    mount --bind "$_dir_" "/`echo $_dir_ | cut -d/ -f3`"
+	fi
+    done
+    return 0
+}
+
+special_udev_haldler(){
+    #Special handling if udev is running
+    udevpid=$(/bin/pidof udevd)
+    if [ -n "${udevpid}" ]; then
+	# Settle pending uevents, then kill udev
+	/sbin/udevadm settle
+	/bin/kill ${udevpid} > /dev/null 2>&1
+	while /bin/pidof udevd >/dev/null; do
+	    sleep 0.1
+    done
+    fi
+    # done with Special handling if udev is running
+	  rm -f /config
+	  rm -f /init
+	  rm -f /init_functions
+	  rm -rf /hooks
+    return 0
+}
+mount_unionfs(){
+    modprobe fuse
+    mkdir -p /unionfs
+    mountpoint /unionfs && umount /unionfs
+    mkdir -p /cow
+    /usr/bin/unionfs -o allow_other -o cow /cow=rw:/squashfs=ro /unionfs
+    return 0
+}
+run_hook(){
+    echo "you have entered hook noname"
+    modprobe loop
+    echo "mkdir -p /cdrom_fs"
+    mkdir -p /cdrom_fs
+    for devices in /sys/block/*
+	do
+	echo devices=$devices
+	for block_dev in /dev/${devices:11}*
+	    do
+	    echo clock_dev=$block_dev
+	    echo "mount_block_dev "$block_dev" && mount_sfs && return 0"
+	    mount_block_dev "$block_dev" && mount_sfs && bind_to_root "/squashfs" && mount_unionfs && bind_to_root "/unionfs" && special_udev_haldler && exec /sbin/init
+	 done
+    done
+}

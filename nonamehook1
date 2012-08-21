@@ -1,0 +1,51 @@
+mount_block_dev(){
+    echo "fs_type=$(blkid -o value -s TYPE -p $1)"
+    fs_type=$(blkid -o value -s TYPE -p $1)
+    echo "if [ -n $fs_type ]"
+    if [ -n "$fs_type" ]
+	then
+	echo "mountpoint /cdrom_fs && umount /cdrom_fs"
+	mountpoint /cdrom_fs && umount /cdrom_fs
+	echo "mount -t $fs_type -o ro $1 /cdrom_fs && return 0"
+	mount -t $fs_type -o ro $1 /cdrom_fs && return 0
+    fi
+    echo "return 1"
+    return 1
+}
+
+mount_sfs(){
+    echo "if [ -f /cdrom_fs/rootfs.sfs ]"
+    if [ -f /cdrom_fs/rootfs.sfs ]
+    then
+	mkdir -p /squashfs
+	mkdir -p /unionfs
+	mount -o loop /cdrom_fs/rootfs.sfs /squashfs && return 0
+	echo "dev_=losetup --show -f /cdrom_fs/rootfs.sfs 3>/dev/null"
+	dev_=`losetup --show -f /cdrom_fs/rootfs.sfs`
+	echo "dev_=${dev_}"
+	root=$dev_
+	echo root=$root
+	return 0
+    else
+	echo "mountpoint /cdrom_fs && umount /cdrom_fs"
+	mountpoint /cdrom_fs && umount /cdrom_fs
+    fi
+    return 1
+}
+
+run_hook(){
+    echo "you have entered hook noname"
+    modprobe loop
+    echo "mkdir -p /cdrom_fs"
+    mkdir -p /cdrom_fs
+    for devices in /sys/block/*
+	do
+	echo devices=$devices
+	for block_dev in /dev/${devices:11}*
+	    do
+	    echo clock_dev=$block_dev
+	    echo "mount_block_dev "$block_dev" && mount_sfs && return 0"
+	    mount_block_dev "$block_dev" && mount_sfs && return 0
+	 done
+    done
+}

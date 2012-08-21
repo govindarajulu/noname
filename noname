@@ -1,0 +1,173 @@
+. /home/hydrogen/bin/noname.conf
+display_options(){
+    echo
+    echo "--------options--------"
+    echo "0 - create directory structure"
+    echo "1 - edit the ./config/pacman.conf"
+    echo "2 - sync pacman DB of live cd"
+    echo "m - mount virtual fs on livecd root"
+    echo "4 - Install base packages"
+    echo "5 - edit ./livecd_root/etc/pacman.conf"
+    echo "6 - edit ./livecd_root/etc/pacman.d/mirrorlist"
+    echo "p - execute pacman command"
+    echo "c - chroot to livecd"
+    echo "9 - noname_hook"
+    echo "10 - mksquashfs"
+    echo "11 - make boot folder"
+    echo "12 - make iso"
+    echo "u - umount virtual fs on livecd root"
+    echo "q - Quit"
+    echo "--------end of options--------"
+    echo -n "Enter you option:"
+}
+
+mkboot(){
+    umount_vfs
+    sudo cp ./livecd_root/boot ./iso/ -rf
+    sudo cp ./livecd_root/usr/lib/grub/i386-pc/stage2_eltorito ./iso/boot/grub/
+    sudo $EDITOR ./iso/boot/grub/menu.lst
+}
+
+mkiso_(){
+    sudo genisoimage -R -b boot/grub/stage2_eltorito -no-emul-boot -boot-load-size 4 -boot-info-table -o live_disk.iso ./iso
+    sudo chown hydrogen:users live_disk.iso
+}
+mksquashfs_(){
+    umount_vfs
+    sudo mksquashfs ./livecd_root rootfs.sfs -always-use-fragments
+    sudo mv ./rootfs.sfs ./iso
+}
+noname_hook(){
+    sudo cp ~/bin/nonamehook ./livecd_root/lib/initcpio/hooks/noname
+    sudo cp ~/bin/nonameinstall ./livecd_root/lib/initcpio/install/noname
+    sudo $EDITOR ./livecd_root/etc/mkinitcpio.conf
+    mount_vfs
+    sudo chroot ./livecd_root pacman -S linux
+}
+mount_vfs(){
+    ( mountpoint "./livecd_root/sys" 1>/dev/null && echo "./livecd_root/sys is already mounted" ) || sudo mount -t sysfs sysfs "./livecd_root/sys"
+    ( mountpoint "./livecd_root/proc" 1>/dev/null && echo "./livecd_root/proc is already mounted" ) || sudo mount -t proc proc "./livecd_root/proc"
+    ( mountpoint "./livecd_root/dev" 1>/dev/null && echo "./livecd_root/dev is already mounted" ) || sudo mount -o bind /dev "./livecd_root/dev"
+    ( mountpoint "./livecd_root/dev/shm" 1>/dev/null && echo "./livecd_root/dev/shm is already mounted" ) || sudo mount -t tmpfs shm "./livecd_root/dev/shm"
+    ( mountpoint "./livecd_root/dev/pts" 1>/dev/null && echo "./livecd_root/dev/pts is already mounted" ) || sudo mount -t devpts devpts "./livecd_root/dev/pts"
+    ( mountpoint "./livecd_root/var/run" 1>/dev/null && echo "./livecd_root/var/run is already mounted" ) || sudo mount --bind /var/run "./livecd_root/var/run"
+    ( mountpoint "./livecd_root/var/lib/dbus" 1>/dev/null && echo "./livecd_root/var/lib/dbus is already mounted" ) || sudo mount --bind /var/lib/dbus "./livecd_root/var/lib/dbus"
+    ( mountpoint "./livecd_root/var/cache/pacman/pkg" 1>/dev/null && echo "./livecd_root/var/cache/pacman/pkg is already mounted" ) || sudo mount --bind /var/cache/pacman/pkg "./livecd_root/var/cache/pacman/pkg"
+}
+
+umount_vfs(){
+    sudo umount "./livecd_root/sys"
+    sudo umount "./livecd_root/proc"
+    sudo umount "./livecd_root/dev/shm"
+    sudo umount "./livecd_root/dev/pts"
+    sudo umount "./livecd_root/dev"
+    sudo umount "./livecd_root/var/run"
+    sudo umount "./livecd_root/var/lib/dbus"
+    sudo umount "./livecd_root/var/cache/pacman/pkg"
+}
+
+pacman_sync(){
+    sudo pacman --config livecd_root/etc/pacman.conf -Syy
+}
+create_directory_structure(){
+    echo "++++++++++++++++++++++"
+    echo "mkdir -p boot config livecd_root/{var/{lib/{pacman,dbus},cache/pacman/pkg,run},dev,proc,sys,etc/pacman.d,root,tmp} squashmod mkinitrd iso"
+    mkdir -p boot config livecd_root/{var/{lib/{pacman,dbus},cache/pacman/pkg,run},dev,proc,sys,etc/pacman.d,root,tmp} squashmod mkinitrd iso
+    echo "cp /etc/pacman.conf ./config/"
+    cp /etc/pacman.conf ./config/
+    echo "++++++++++++++++++++++"
+}
+
+
+execute_option(){
+    case $1 in
+	'q')
+	    echo "Trying to umount"
+	    umount_vfs
+	    exit
+	    ;;
+	'0')
+	    create_directory_structure
+	    ;;
+	'1')
+	    $EDITOR ./config/pacman.conf
+	    ;;
+	'2')
+	    if [ -f ./livecd_root/etc/pacman.conf ]
+	    then
+		echo "sudo pacman --config ./livecd_root/etc/pacman.conf --root ./livecd_root/ -Syy"
+		sudo pacman --config ./livecd_root/etc/pacman.conf --root ./livecd_root/ -Syy
+	    else
+		echo "sudo pacman --config ./config/pacman.conf --root ./livecd_root/ -Syy"
+		sudo pacman --config ./config/pacman.conf --root ./livecd_root/ -Syy
+	    fi
+	    ;;
+	'm')
+	    mount_vfs
+	    ;;
+	'4')
+	    if [ -f ./livecd_root/etc/pacman.conf ]
+	    then
+		echo "sudo pacman --cachedir $PKG_DIR --config ./livecd_root/etc/pacman.conf --root ./livecd_root/ -S base squashfs-tools fuse cmake make automake gcc"
+		sudo pacman --cachedir $PKG_DIR --config ./livecd_root/etc/pacman.conf --root ./livecd_root/ -S base squashfs-tools fuse cmake make automake gcc
+	    else
+		echo "sudo pacman --cachedir $PKG_DIR --config ./config/pacman.conf --root ./livecd_root/ -S base squashfs-tools fuse cmake make automake gcc"
+		sudo pacman --cachedir $PKG_DIR --config ./config/pacman.conf --root ./livecd_root/ -S base squashfs-tools fuse cmake make automake gcc
+	    fi
+	    ;;
+	'5')
+	    sudo $EDITOR ./livecd_root/etc/pacman.conf
+	    ;;
+	'6')
+	    sudo $EDITOR ./livecd_root/etc/pacman.d/mirrorlist
+	    ;;
+	'p')
+	    if [ -f ./livecd_root/etc/pacman.conf ]
+	    then
+		echo -n "sudo pacman --cachedir $PKG_DIR --config ./livecd_root/etc/pacman.conf --root ./livecd_root/ "
+		read ans
+		sudo pacman --cachedir $PKG_DIR --config ./livecd_root/etc/pacman.conf --root ./livecd_root/ $ans
+	    else
+		echo "sudo pacman --cachedir $PKG_DIR --config ./config/pacman.conf --root ./livecd_root/ "
+		read ans
+		sudo pacman --cachedir $PKG_DIR --config ./config/pacman.conf --root ./livecd_root/ $ans
+	    fi
+	    ;;
+	'u')
+	    umount_vfs
+	    ;;
+	'c')
+	    echo "Trying to mount virtual file systems"
+	    mount_vfs
+	    sudo chroot ./livecd_root
+	    ;;
+	'9')
+	    noname_hook
+	    ;;
+	'10')
+	    mksquashfs_
+	    ;;
+	'11')
+	    mkboot
+	    ;;
+	'12')
+	    mkiso_
+	    ;;
+	*)
+	    echo "Invalid option"
+	    ;;
+    esac
+}
+
+main(){
+    display_options
+    read option
+    execute_option $option
+}
+
+clear
+echo "Welcome to Noname livecd creator"
+while [ 1 ]
+do
+    main
+done
